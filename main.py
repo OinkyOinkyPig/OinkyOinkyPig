@@ -12,8 +12,8 @@ VIDEO_FILE = list(VIDEO.keys())[0]
 
 OUTPUT = "VideoDataPack"
 
-WIDTH = 20
-HEIGHT = 20
+WIDTH = 70
+HEIGHT = 70
 
 FPS = 20
 
@@ -153,20 +153,31 @@ colors = [
     ((227, 223, 207), "bone_block")
 ]
 
+color_cache = {}
 
 def closest_color(rgb):
+
+    rgb = tuple(rgb)
+
+    if rgb in color_cache:
+        return color_cache[rgb]
+
     best = None
-    best_distance = 999999
+    best_distance = 1e9
 
     for color, block in colors:
-        d = sum((rgb[i]-color[i])**2 for i in range(3))
+        d = (
+            (rgb[0]-color[0])**2 +
+            (rgb[1]-color[1])**2 +
+            (rgb[2]-color[2])**2
+        )
 
         if d < best_distance:
             best_distance = d
             best = block
 
+    color_cache[rgb] = best
     return best
-
 
 # Create folders
 
@@ -195,9 +206,10 @@ frame_count = int(video.get(cv2.CAP_PROP_FRAME_COUNT))
 
 print("Frames:", frame_count)
 
+previous_frame = None
 
 frames = []
-
+previous_frame = None
 
 # Convert frames
 
@@ -219,28 +231,56 @@ for frame_number in range(frame_count):
         (WIDTH, HEIGHT)
     )
 
-    blocks=[]
-
     pixels = img.load()
+    current = []
 
     for y in range(HEIGHT):
         for x in range(WIDTH):
+            current.append(closest_color(pixels[x, y]))
 
-            block = closest_color(
-                pixels[x,y]
-            )
+    blocks = []
 
-            blocks.append(
-                f"setblock {ORIGIN_X+x} {ORIGIN_Y-y} {ORIGIN_Z} {block}"
-            )
+    for y in range(HEIGHT):
+
+        x = 0
+
+        while x < WIDTH:
+
+            block = current[y*WIDTH+x]
+
+            # Skip unchanged pixels
+            if previous_frame and block == previous_frame[y*WIDTH+x]:
+                x += 1
+                continue
+
+            start = x
+
+            while (
+                x + 1 < WIDTH and
+                current[y*WIDTH+x+1] == block and
+                (
+                    previous_frame is None or
+                    current[y*WIDTH+x+1] != previous_frame[y*WIDTH+x+1]
+                )
+            ):
+                x += 1
+
+            end = x
+
+            if end - start >= 2:
+                blocks.append(
+                    f"fill {ORIGIN_X+start} {ORIGIN_Y-y} {ORIGIN_Z} "
+                    f"{ORIGIN_X+end} {ORIGIN_Y-y} {ORIGIN_Z} {block}"
+                )
+            else:
+                for xx in range(start, end+1):
+                    blocks.append(
+                        f"setblock {ORIGIN_X+xx} {ORIGIN_Y-y} {ORIGIN_Z} {block}"
+                    )
+
+            x += 1
 
     frames.append(blocks)
-
-    print(
-        f"Converted frame {frame_number+1}/{frame_count}"
-    )
-
-# Create frame functions
 
 for i, frame in enumerate(frames):
 
@@ -253,8 +293,6 @@ for i, frame in enumerate(frames):
 
         for command in frame:
             f.write(command+"\n")
-
-
 
 # Create playback loop
 
